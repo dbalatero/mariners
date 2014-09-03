@@ -88,8 +88,8 @@ class Printer
   def to_s
     [
       header,
+      team(@board.away_team),
       team(@board.home_team),
-      team(@board.away_team)
     ].map(&:to_s).join("\n")
   end
 
