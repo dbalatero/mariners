@@ -100,7 +100,7 @@ class Printer
     s += first_column_padding
 
     s += @board.columns.each_with_index.map { |column, index|
-      column.colorize(column_header_color(index))
+      pad(column, max_column_width(index)).colorize(column_header_color(index))
     }.join(column_padding)
   end
 
@@ -164,7 +164,7 @@ class Printer
     length = [
       @board.away_team.name,
       @board.home_team.name
-    ].max { |name| name.length }.length
+    ].map { |name| name.length }.max
   end
 
   def max_column_width(index)
@@ -174,7 +174,7 @@ class Printer
       @board.columns[index]
     ]
 
-    columns.max { |col| col.length }.length
+    columns.map { |col| col.length }.max
   end
 end
 
@@ -200,7 +200,13 @@ def scoreboard_json(id)
   JSON.parse(json)
 end
 
-board_id = scoreboard_id
+def passed_in_board_id
+  unless ARGV.nil? || ARGV.first == ""
+    ARGV.first
+  end
+end
+
+board_id = passed_in_board_id || scoreboard_id
 
 unless board_id
   puts "No game in progress right now."
