@@ -1,0 +1,212 @@
+#!/usr/bin/env ruby
+
+require 'rubygems'
+require 'bundler'
+require 'open-uri'
+
+Bundler.require
+
+class Scoreboard
+  def initialize(json)
+    @json = json
+  end
+
+  def title
+    event['title']
+  end
+
+  def status
+    event['status']
+  end
+
+  def start_time
+    Time.parse(event['start_time'])
+  end
+
+  def period
+    event['period']
+  end
+
+  def time_remaining
+    event['time_remaining']
+  end
+
+  def columns
+    event['score']['cols']
+  end
+
+  def home_team
+    @home_team ||= Team.new(
+      name: event['home_team']['name'],
+      scores: event['score']['home']
+    )
+  end
+
+  def away_team
+    @away_team ||= Team.new(
+      name: event['away_team']['name'],
+      scores: event['score']['away']
+    )
+  end
+
+  def teams
+    [home_team, away_team]
+  end
+
+  def date
+    @date ||= @html.css('.m-scoreboard__box-score_title').text
+  end
+
+  private
+
+  def event
+    @json['events'].first
+  end
+
+  class Team
+    attr_reader :name, :scores
+
+    def initialize(name:, scores:)
+      @name = name
+      @scores = scores
+    end
+
+    def runs
+      scores[-3].to_i
+    end
+  end
+end
+
+class Printer
+  FIRST_COLUMN_PADDING = 3
+  COLUMN_PADDING = 2
+
+  def initialize(board)
+    @board = board
+  end
+
+  def to_s
+    [
+      header,
+      team(@board.home_team),
+      team(@board.away_team)
+    ].map(&:to_s).join("\n")
+  end
+
+  private
+
+  def header
+    s =  " " * max_team_name_length
+    s += first_column_padding
+
+    s += @board.columns.each_with_index.map { |column, index|
+      column.colorize(column_header_color(index))
+    }.join(column_padding)
+  end
+
+  def team(team)
+    color = team.name =~ /mariners/i ? :light_blue : :light_red
+
+    s = pad(team.name, max_team_name_length).colorize(color)
+    s += first_column_padding
+
+    team.scores.each_with_index do |score, index|
+      s += pad(score, max_column_width(index))
+        .colorize(column_score_color(index, team))
+
+      s += column_padding
+    end
+
+    s
+  end
+
+  def pad(string, column_width)
+    spaces = column_width - string.length
+
+    string + (" " * spaces)
+  end
+
+  def winning?(team)
+    other = other_team(team)
+
+    team.runs > other.runs
+  end
+
+  def other_team(team)
+    @board.teams.reject { |t| t == team }.first
+  end
+
+  def column_padding
+    " " * COLUMN_PADDING
+  end
+
+  def column_header_color(index)
+    if index >= @board.columns.length - 3
+      :blue
+    else
+      :yellow
+    end
+  end
+
+  def column_score_color(index, team)
+    if index == @board.columns.length - 3 && winning?(team)
+      :green
+    else
+      :white
+    end
+  end
+
+  def first_column_padding
+    " " * FIRST_COLUMN_PADDING
+  end
+
+  def max_team_name_length
+    length = [
+      @board.away_team.name,
+      @board.home_team.name
+    ].max { |name| name.length }.length
+  end
+
+  def max_column_width(index)
+    columns = [
+      @board.away_team.scores[index],
+      @board.home_team.scores[index],
+      @board.columns[index]
+    ]
+
+    columns.max { |col| col.length }.length
+  end
+end
+
+def scoreboard_id
+  html = open("http://www.lookoutlanding.com").read
+  doc = Nokogiri::HTML(html)
+
+  scoreboard = doc.css(".m-scoreboard")
+
+  if scoreboard.empty?
+    nil
+  else
+    scoreboard.attr("data-scoreboard-event-id").value
+  end
+end
+
+def scoreboard_json(id)
+  json = open(
+    "http://www.lookoutlanding.com/sbn_scoreboard/"\
+    "ajax_leagues_and_events?events%5B%5D=#{id}"
+  ).read
+
+  JSON.parse(json)
+end
+
+board_id = scoreboard_id
+
+unless board_id
+  puts "No game in progress right now."
+  exit
+else
+  board = Scoreboard.new(scoreboard_json(board_id))
+  printer = Printer.new(board)
+  puts printer.to_s
+end
